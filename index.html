@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Game Sederhana - Tangkap Koin</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(to bottom, #87ceeb, #dff6ff);
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    #game {
+      display: block;
+      margin: 0 auto;
+      background: linear-gradient(to bottom, #8fd3ff, #eafcff);
+      border: 3px solid #222;
+    }
+
+    .hud {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #222;
+      z-index: 10;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.7);
+    }
+
+    .box {
+      background: rgba(255,255,255,0.8);
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 2px solid #222;
+    }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.35);
+      z-index: 20;
+    }
+
+    .panel {
+      width: min(90%, 420px);
+      background: white;
+      border-radius: 18px;
+      padding: 20px;
+      text-align: center;
+      border: 3px solid #222;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    }
+
+    .panel h1 {
+      margin-top: 0;
+      font-size: 28px;
+    }
+
+    .panel p {
+      margin: 10px 0;
+      color: #333;
+      line-height: 1.4;
+    }
+
+    button {
+      border: none;
+      background: #1f7aff;
+      color: white;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 12px 18px;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    .controls {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 14px;
+      z-index: 15;
+    }
+
+    .ctrl-btn {
+      width: 90px;
+      height: 60px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.88);
+      color: #111;
+      border: 3px solid #222;
+      font-size: 28px;
+      font-weight: bold;
+      user-select: none;
+    }
+
+    .ctrl-btn:active {
+      background: #d9ecff;
+    }
+
+    .footer-note {
+      font-size: 13px;
+      color: #555;
+      margin-top: 12px;
+    }
+
+    @media (min-width: 900px) {
+      .ctrl-btn {
+        width: 110px;
+        height: 64px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="box">Skor: <span id="score">0</span></div>
+    <div class="box">Nyawa: <span id="lives">3</span></div>
+    <div class="box">High Score: <span id="highScore">0</span></div>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <div id="overlay">
+    <div class="panel">
+      <h1>🎮 Tangkap Koin</h1>
+      <p>Tangkap <b>koin emas</b> untuk menambah skor.</p>
+      <p>Hindari <b>bom merah</b>. Kalau kena, nyawa berkurang.</p>
+      <p><b>Desktop:</b> pakai tombol ← →<br><b>Android:</b> pakai tombol layar</p>
+      <button id="startBtn">Mulai Game</button>
+      <div class="footer-note">Cocok untuk GitHub Pages, Chrome, dan Android.</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="ctrl-btn" id="leftBtn">←</button>
+    <button class="ctrl-btn" id="rightBtn">→</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const scoreEl = document.getElementById("score");
+    const livesEl = document.getElementById("lives");
+    const highScoreEl = document.getElementById("highScore");
+    const overlay = document.getElementById("overlay");
+    const startBtn = document.getElementById("startBtn");
+
+    const leftBtn = document.getElementById("leftBtn");
+    const rightBtn = document.getElementById("rightBtn");
+
+    let W = 0;
+    let H = 0;
+
+    function resizeCanvas() {
+      const maxWidth = 500;
+      const maxHeight = 850;
+
+      W = Math.min(window.innerWidth, maxWidth);
+      H = Math.min(window.innerHeight, maxHeight);
+
+      canvas.width = W;
+      canvas.height = H;
+      canvas.style.width = W + "px";
+      canvas.style.height = H + "px";
+    }
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    let gameRunning = false;
+    let score = 0;
+    let lives = 3;
+    let highScore = Number(localStorage.getItem("coinCatchHighScore") || 0);
+
+    highScoreEl.textContent = highScore;
+
+    const player = {
+      x: 0,
+      y: 0,
+      w: 80,
+      h: 22,
+      speed: 7,
+      moveLeft: false,
+      moveRight: false
+    };
+
+    let items = [];
+    let spawnTimer = 0;
+    let spawnInterval = 45;
+    let frame = 0;
+
+    function resetGame() {
+      score = 0;
+      lives = 3;
+      items = [];
+      spawnTimer = 0;
+      frame = 0;
+
+      player.w = Math.min(80, W * 0.18);
+      player.h = 22;
+      player.x = W / 2 - player.w / 2;
+      player.y = H - 90;
+
+      updateHUD();
+    }
+
+    function updateHUD() {
+      scoreEl.textContent = score;
+      livesEl.textContent = lives;
+      highScoreEl.textContent = highScore;
+    }
+
+    function spawnItem() {
+      const isBomb = Math.random() < 0.25;
+      const size = isBomb ? 28 : 24;
+      items.push({
+        x: Math.random() * (W - size),
+        y: -size,
+        size,
+        speed: 3 + Math.random() * 2 + Math.min(score * 0.03, 3),
+        type: isBomb ? "bomb" : "coin"
+      });
+    }
+
+    function drawBackground() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Awan sederhana
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      for (let i = 0; i < 5; i++) {
+        const cx = (i * 120 + frame * 0.2) % (W + 120) - 60;
+        const cy = 50 + (i % 2) * 35;
+        drawCloud(cx, cy);
+      }
+
+      // Tanah
+      ctx.fillStyle = "#67b34d";
+      ctx.fillRect(0, H - 50, W, 50);
+    }
+
+    function drawCloud(x, y) {
+      ctx.beginPath();
+      ctx.arc(x, y, 18, 0, Math.PI * 2);
+      ctx.arc(x + 20, y - 10, 20, 0, Math.PI * 2);
+      ctx.arc(x + 42, y, 18, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawPlayer() {
+      // Keranjang
+      ctx.fillStyle = "#7a4b24";
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+
+      ctx.strokeStyle = "#3f2512";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(player.x, player.y, player.w, player.h);
+
+      // Pegangan
+      ctx.beginPath();
+      ctx.strokeStyle = "#3f2512";
+      ctx.lineWidth = 3;
+      ctx.arc(player.x + player.w / 2, player.y + 2, player.w / 3, Math.PI, 0);
+      ctx.stroke();
+    }
+
+    function drawCoin(item) {
+      ctx.beginPath();
+      ctx.fillStyle = "#ffd700";
+      ctx.arc(item.x + item.size / 2, item.y + item.size / 2, item.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.strokeStyle = "#ffb300";
+      ctx.lineWidth = 3;
+      ctx.arc(item.x + item.size / 2, item.y + item.size / 2, item.size / 2 - 3, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = "#cc9600";
+      ctx.font = `${Math.max(14, item.size * 0.6)}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("$", item.x + item.size / 2, item.y + item.size / 2 + 1);
+    }
+
+    function drawBomb(item) {
+      ctx.beginPath();
+      ctx.fillStyle = "#e53935";
+      ctx.arc(item.x + item.size / 2, item.y + item.size / 2, item.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.strokeStyle = "#7a0000";
+      ctx.lineWidth = 3;
+      ctx.arc(item.x + item.size / 2, item.y + item.size / 2, item.size / 2 - 2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.strokeStyle = "#333";
+      ctx.lineWidth = 3;
+      ctx.moveTo(item.x + item.size / 2, item.y);
+      ctx.lineTo(item.x + item.size / 2 + 8, item.y - 8);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.fillStyle = "#ffeb3b";
+      ctx.arc(item.x + item.size / 2 + 10, item.y - 10, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function updatePlayer() {
+      if (player.moveLeft) player.x -= player.speed;
+      if (player.moveRight) player.x += player.speed;
+
+      if (player.x < 0) player.x = 0;
+      if (player.x + player.w > W) player.x = W - player.w;
+    }
+
+    function hitTest(a, b) {
+      return (
+        a.x < b.x + b.w &&
+        a.x + a.size > b.x &&
+        a.y < b.y + b.h &&
+        a.y + a.size > b.y
+      );
+    }
+
+    function updateItems() {
+      for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        item.y += item.speed;
+
+        if (hitTest(item, player)) {
+          if (item.type === "coin") {
+            score += 1;
+            if (score > highScore) {
+              highScore = score;
+              localStorage.setItem("coinCatchHighScore", highScore);
+            }
+          } else {
+            lives -= 1;
+          }
+          items.splice(i, 1);
+          updateHUD();
+          continue;
+        }
+
+        if (item.y > H) {
+          if (item.type === "coin") {
+            // tidak ada hukuman kalau koin jatuh
+          }
+          items.splice(i, 1);
+        }
+      }
+    }
+
+    function drawItems() {
+      for (const item of items) {
+        if (item.type === "coin") drawCoin(item);
+        else drawBomb(item);
+      }
+    }
+
+    function gameOver() {
+      gameRunning = false;
+      overlay.innerHTML = `
+        <div class="panel">
+          <h1>Game Over</h1>
+          <p>Skor kamu: <b>${score}</b></p>
+          <p>High Score: <b>${highScore}</b></p>
+          <button id="restartBtn">Main Lagi</button>
+          <div class="footer-note">Refresh tidak diperlukan. Tinggal main lagi.</div>
+        </div>
+      `;
+      overlay.style.display = "flex";
+
+      document.getElementById("restartBtn").addEventListener("click", startGame);
+    }
+
+    function gameLoop() {
+      if (!gameRunning) return;
+
+      frame++;
+      spawnTimer++;
+
+      drawBackground();
+      updatePlayer();
+      drawPlayer();
+
+      if (spawnTimer >= spawnInterval) {
+        spawnItem();
+        spawnTimer = 0;
+
+        // makin lama makin cepat
+        if (spawnInterval > 20 && frame % 300 === 0) {
+          spawnInterval--;
+        }
+      }
+
+      updateItems();
+      drawItems();
+
+      if (lives <= 0) {
+        updateHUD();
+        gameOver();
+        return;
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function startGame() {
+      overlay.style.display = "none";
+      resetGame();
+      gameRunning = true;
+      gameLoop();
+    }
+
+    startBtn.addEventListener("click", startGame);
+
+    // Keyboard controls
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") player.moveLeft = true;
+      if (e.key === "ArrowRight") player.moveRight = true;
+    });
+
+    window.addEventListener("keyup", (e) => {
+      if (e.key === "ArrowLeft") player.moveLeft = false;
+      if (e.key === "ArrowRight") player.moveRight = false;
+    });
+
+    // Touch / mouse controls
+    function holdStartLeft(e) {
+      e.preventDefault();
+      player.moveLeft = true;
+    }
+    function holdEndLeft(e) {
+      e.preventDefault();
+      player.moveLeft = false;
+    }
+
+    function holdStartRight(e) {
+      e.preventDefault();
+      player.moveRight = true;
+    }
+    function holdEndRight(e) {
+      e.preventDefault();
+      player.moveRight = false;
+    }
+
+    ["touchstart", "mousedown"].forEach(evt => {
+      leftBtn.addEventListener(evt, holdStartLeft);
+      rightBtn.addEventListener(evt, holdStartRight);
+    });
+
+    ["touchend", "touchcancel", "mouseup", "mouseleave"].forEach(evt => {
+      leftBtn.addEventListener(evt, holdEndLeft);
+      rightBtn.addEventListener(evt, holdEndRight);
+    });
+
+    resetGame();
+  </script>
+</body>
+  </html>
